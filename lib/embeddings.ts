@@ -78,8 +78,28 @@ export async function embedAndStoreResume({
     });
   }
 
-  const { error } = await supabase.from('resume_chunks').insert(rows);
-  if (error) throw new Error(`Failed to store chunks: ${error.message}`);
+  const { data: inserted, error } = await supabase
+    .from('resume_chunks')
+    .insert(rows)
+    .select('id');
 
-  return { chunkCount: rows.length };
+  if (error) {
+    throw new Error(
+      `Failed to store chunks: ${error.message}${
+        error.details ? ` (${error.details})` : ''
+      }${error.hint ? ` [hint: ${error.hint}]` : ''}`,
+    );
+  }
+
+  const actual = inserted?.length ?? 0;
+  if (actual !== rows.length) {
+    throw new Error(
+      `Chunk insert returned no error but only ${actual}/${rows.length} rows were stored. ` +
+        `This is almost always RLS silently blocking the insert — your SUPABASE_SERVICE_ROLE_KEY ` +
+        `is likely set to the anon key by mistake. In Supabase Dashboard → Settings → API, ` +
+        `copy the secret "service_role" key (NOT the "anon public" key) into .env.local and restart.`,
+    );
+  }
+
+  return { chunkCount: actual };
 }
