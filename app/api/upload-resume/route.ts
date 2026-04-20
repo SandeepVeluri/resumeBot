@@ -69,6 +69,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json(
+        {
+          error:
+            'Server is missing OPENAI_API_KEY. Set it in .env.local and restart the dev server before uploading.',
+        },
+        { status: 500 },
+      );
+    }
+
     const service = createSupabaseServiceClient();
 
     // Upload file to storage (best effort; continue if bucket not ready).
@@ -118,11 +128,36 @@ export async function POST(req: NextRequest) {
     // Clean up old chunks for this user.
     await service.from('resume_chunks').delete().eq('user_id', user.id);
 
-    const { chunkCount } = await embedAndStoreResume({
-      resumeId: resumeRow.id,
-      userId: user.id,
-      rawText,
-    });
+    let chunkCount = 0;
+    try {
+      const result = await embedAndStoreResume({
+        resumeId: resumeRow.id,
+        userId: user.id,
+        rawText,
+      });
+      chunkCount = result.chunkCount;
+    } catch (err) {
+      // Roll back the resume row so the dashboard doesn't show an indexed
+      // resume that the chat API can't actually answer against.
+      await service.from('resume_chunks').delete().eq('resume_id', resumeRow.id);
+      await service.from('resumes').delete().eq('id', resumeRow.id);
+      return NextResponse.json(
+        {
+          error: `Indexing failed: ${
+            err instanceof Error ? err.message : 'unknown'
+          }. Resume was not saved — fix the error and retry.`,
+        },
+        { status: 500 },
+      );
+    }
+
+    if (chunkCount === 0) {
+      await service.from('resumes').delete().eq('id', resumeRow.id);
+      return NextResponse.json(
+        { error: 'Indexing produced no chunks. Resume was not saved.' },
+        { status: 500 },
+      );
+    }
 
     return NextResponse.json({
       success: true,
