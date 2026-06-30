@@ -69,11 +69,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    if (!process.env.GEMINI_API_KEY) {
       return NextResponse.json(
         {
           error:
-            'Server is missing OPENAI_API_KEY. Set it in .env.local and restart the dev server before uploading.',
+            'Server is missing GEMINI_API_KEY. Set it in .env.local and restart the dev server before uploading.',
         },
         { status: 500 },
       );

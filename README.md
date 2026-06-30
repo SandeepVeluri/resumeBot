@@ -2,13 +2,13 @@
 
 A full-stack web app that turns a resume into a shareable chatbot. Candidates upload a resume and share a link; recruiters chat with an AI that answers strictly from resume content.
 
-Built with Next.js 14 (App Router), Supabase (Postgres + pgvector + Auth + Storage), Claude, and OpenAI embeddings.
+Built with Next.js 14 (App Router), Supabase (Postgres + pgvector + Auth + Storage), Claude, and Gemini embeddings.
 
 ## Features
 
 - Google OAuth sign-in for candidates (Supabase Auth)
 - PDF and DOCX resume parsing (`pdf-parse`, `mammoth`)
-- Chunking + `text-embedding-3-small` embeddings stored in pgvector
+- Chunking + Gemini `gemini-embedding-001` embeddings (truncated to 1536-dim) stored in pgvector
 - RAG retrieval against Supabase via `match_resume_chunks` RPC
 - Claude integration with a strict system prompt — model auto-switches between `claude-haiku-4-5` and `claude-sonnet-4-6`
 - Streaming chat responses (ReadableStream)
@@ -28,7 +28,7 @@ Built with Next.js 14 (App Router), Supabase (Postgres + pgvector + Auth + Stora
 | Styling | Tailwind CSS |
 | Auth + DB + Storage | Supabase |
 | Vector store | pgvector (1536-dim, ivfflat cosine) |
-| Embeddings | OpenAI `text-embedding-3-small` |
+| Embeddings | Google Gemini `gemini-embedding-001` (1536-dim) |
 | LLM | Anthropic Claude (Haiku 4.5 / Sonnet 4.6) |
 | Parsing | `pdf-parse`, `mammoth` |
 | Scraping | `cheerio` + GitHub API |
@@ -65,7 +65,7 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 ANTHROPIC_API_KEY=
-OPENAI_API_KEY=          # for embeddings only
+GEMINI_API_KEY=          # for embeddings only
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
@@ -87,7 +87,7 @@ Candidate                                Recruiter
   │     └── /api/upload-resume             │   + chat panel (40%)
   │          ├─ extractResumeText          ├─ Asks a question
   │          ├─ chunkText (500 tok + 50)   │     └── /api/chat
-  │          ├─ OpenAI embeddings          │          ├─ load/create session
+  │          ├─ Gemini embeddings          │          ├─ load/create session
   │          └─ insert into resume_chunks  │          ├─ sanitize input
   ├─ Add project links                     │          ├─ RAG: match_resume_chunks RPC
   │     └── /api/scrape-link               │          ├─ if low confidence → canned
@@ -148,7 +148,7 @@ app/
   auth/callback/route.ts
 lib/
   supabase.ts     — browser / server / service clients
-  embeddings.ts   — OpenAI + chunk storage
+  embeddings.ts   — Gemini + chunk storage
   rag.ts          — vector retrieval + project summaries
   claude.ts       — system prompt, model selector, streaming
   extract.ts      — PDF / DOCX text + section parsing

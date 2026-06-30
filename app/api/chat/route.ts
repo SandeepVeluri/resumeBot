@@ -57,8 +57,8 @@ export async function POST(req: NextRequest) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return jsonError('Server missing ANTHROPIC_API_KEY', 500);
   }
-  if (!process.env.OPENAI_API_KEY) {
-    return jsonError('Server missing OPENAI_API_KEY', 500);
+  if (!process.env.GEMINI_API_KEY) {
+    return jsonError('Server missing GEMINI_API_KEY', 500);
   }
 
   try {

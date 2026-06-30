@@ -1,28 +1,72 @@
-import OpenAI from 'openai';
+import { GoogleGenAI } from '@google/genai';
 import { createSupabaseServiceClient } from './supabase/service';
 import { chunkText, shouldChunk, type Chunk } from './chunker';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let _ai: GoogleGenAI | null = null;
+function getClient(): GoogleGenAI {
+  if (_ai) return _ai;
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      'GEMINI_API_KEY is not set. Add it to .env.local and restart the dev server.',
+    );
+  }
+  _ai = new GoogleGenAI({ apiKey });
+  return _ai;
+}
 
-const EMBEDDING_MODEL = 'text-embedding-3-small';
+const EMBEDDING_MODEL = 'gemini-embedding-001';
+// Matches the vector(1536) column on resume_chunks. gemini-embedding-001
+// supports Matryoshka truncation via outputDimensionality; Google recommends
+// L2-normalizing the result whenever you request less than the native 3072.
+const EMBEDDING_DIM = 1536;
+const MAX_INPUT_CHARS = 8000;
+
+function normalize(values: number[]): number[] {
+  let sumSq = 0;
+  for (const v of values) sumSq += v * v;
+  const norm = Math.sqrt(sumSq);
+  if (norm === 0) return values;
+  return values.map((v) => v / norm);
+}
+
+function clip(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().slice(0, MAX_INPUT_CHARS);
+}
 
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const trimmed = text.replace(/\s+/g, ' ').trim().slice(0, 8000);
-  const response = await openai.embeddings.create({
+  const response = await getClient().models.embedContent({
     model: EMBEDDING_MODEL,
-    input: trimmed,
+    contents: clip(text),
+    config: { outputDimensionality: EMBEDDING_DIM },
   });
-  return response.data[0].embedding;
+  const values = response.embeddings?.[0]?.values;
+  if (!values || values.length === 0) {
+    throw new Error('Gemini returned no embedding values');
+  }
+  return normalize(values);
 }
 
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
-  const inputs = texts.map((t) => t.replace(/\s+/g, ' ').trim().slice(0, 8000));
-  const response = await openai.embeddings.create({
+  const inputs = texts.map(clip);
+  const response = await getClient().models.embedContent({
     model: EMBEDDING_MODEL,
-    input: inputs,
+    contents: inputs,
+    config: { outputDimensionality: EMBEDDING_DIM },
   });
-  return response.data.map((d) => d.embedding);
+  const embeddings = response.embeddings;
+  if (!embeddings || embeddings.length !== inputs.length) {
+    throw new Error(
+      `Gemini returned ${embeddings?.length ?? 0} embeddings for ${inputs.length} inputs`,
+    );
+  }
+  return embeddings.map((e) => {
+    if (!e.values || e.values.length === 0) {
+      throw new Error('Gemini returned an embedding with no values');
+    }
+    return normalize(e.values);
+  });
 }
 
 export interface EmbedAndStoreParams {
@@ -52,7 +96,8 @@ export async function embedAndStoreResume({
     return { chunkCount: 0 };
   }
 
-  // Batch embed (OpenAI allows ~2048 inputs per call; we batch by 64 for safety)
+  // Gemini's batch embed accepts up to 100 inputs per call; we batch by 64 to
+  // stay comfortably under the limit and keep payload sizes reasonable.
   const batchSize = 64;
   const rows: Array<{
     resume_id: string;
@@ -96,8 +141,8 @@ export async function embedAndStoreResume({
     throw new Error(
       `Chunk insert returned no error but only ${actual}/${rows.length} rows were stored. ` +
         `This is almost always RLS silently blocking the insert — your SUPABASE_SERVICE_ROLE_KEY ` +
-        `is likely set to the anon key by mistake. In Supabase Dashboard → Settings → API, ` +
-        `copy the secret "service_role" key (NOT the "anon public" key) into .env.local and restart.`,
+        `is likely set to the anon / publishable key by mistake. In Supabase Dashboard → Settings → API, ` +
+        `copy the secret key ("sb_secret_..." on new projects, or the legacy "service_role" JWT) into .env.local and restart.`,
     );
   }
 
