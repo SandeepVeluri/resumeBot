@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "app/api/upload-resume/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/chat/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/scrape-link/route.ts": {
+      "maxDuration": 30
+    }
+  }
+}
